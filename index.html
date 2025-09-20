@@ -202,7 +202,7 @@
     </div>
   </main>
 
-  <div id="modal-root"></div>
+  <div id="modal-root" style="position: relative; z-index: 5000;"></div>
   <div id="toast-root" class="fixed bottom-6 right-6 z-[100] space-y-2"></div>
 
   <script>
@@ -411,7 +411,7 @@
      **********************/
     function openModal(content) {
         const modalRoot = document.getElementById('modal-root');
-        modalRoot.innerHTML = `<div class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[1000] p-4 animate-slide-up">${content}</div>`;
+        modalRoot.innerHTML = `<div class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 animate-slide-up">${content}</div>`;
     }
 
     function closeModal() { document.getElementById('modal-root').innerHTML = ''; }
@@ -451,7 +451,9 @@
     
     function confirmPayment(id) {
         const parking = PARKINGS.find(p => p.id === id);
+        const start = document.getElementById('res-start').value;
         const hours = parseFloat(document.getElementById('res-hours').value);
+        const block = document.getElementById('res-block').value;
         const total = (parking.rate * hours).toFixed(2);
         const content = `
         <div class='bg-white p-6 rounded-2xl shadow-2xl max-w-md w-full mx-4'>
@@ -465,17 +467,14 @@
             <p class="text-xs text-slate-400 mt-4 text-center">Esto es una simulación. Al confirmar, la reserva se creará.</p>
              <div class='mt-4 flex gap-2 justify-end'>
                 <button class='bg-white text-slate-700 text-sm font-semibold px-4 py-2 rounded-lg border hover:bg-slate-50' onclick='openReserve(${id})'>Volver</button>
-                <button class='bg-sp-green text-white font-semibold px-4 py-2 rounded-lg hover-lift' onclick='createReservation(${id})'>Pagar L ${total} ahora</button>
+                <button class='bg-sp-green text-white font-semibold px-4 py-2 rounded-lg hover-lift' onclick='createReservation(${id}, "${start}", ${hours}, "${block}")'>Pagar L ${total} ahora</button>
              </div>
         </div>`;
         openModal(content);
     }
 
-    function createReservation(id) {
+    function createReservation(id, start, hours, block) {
       const parking = PARKINGS.find(p=>p.id===id);
-      const start = document.getElementById('res-start').value;
-      const hours = parseFloat(document.getElementById('res-hours').value);
-      const block = document.getElementById('res-block').value;
       const total = (parking.rate * hours).toFixed(2);
       const code = 'SP' + Math.random().toString(36).substr(2,6).toUpperCase();
       const reservation = { id:'res_'+Date.now(), parkingId:parking.id, parkingName:parking.name, zone:parking.zone, start, hours, block, total, code, created: new Date().toISOString() };
