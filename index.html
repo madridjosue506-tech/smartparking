@@ -1,0 +1,568 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>SmartParking HN — Prototipo Avanzado</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- Leaflet para mapa -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Librería QR -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'sp-blue': '#1e40af',
+            'sp-blue-light': '#3b82f6',
+            'sp-green': '#10b981',
+            'sp-orange': '#f59e0b',
+            'sp-red': '#ef4444'
+          },
+          boxShadow: {
+            'glow': '0 0 20px rgba(59, 130, 246, 0.3)',
+            'card': '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+            'card-hover': '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { 
+      font-family: 'Inter', sans-serif; 
+      background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+    }
+    .page { display: none; }
+    .page.active { display: block; }
+
+    @keyframes slideInUp {
+      from { transform: translateY(20px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    .animate-slide-up { animation: slideInUp 0.5s ease-out; }
+    
+    .glass {
+      background: rgba(255, 255, 255, 0.25);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+    }
+    
+    .hover-lift { transition: all 0.3s ease; }
+    .hover-lift:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+    }
+
+    /* Custom marker styles */
+    .custom-marker {
+      width: 36px;
+      height: 36px;
+      border-radius: 50% 50% 50% 0;
+      border: 2px solid white;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      color: white;
+      font-size: 10px;
+      transform: rotate(-45deg);
+    }
+    .custom-marker-inner {
+        transform: rotate(45deg);
+        text-align: center;
+        line-height: 1;
+    }
+    .custom-marker-inner .spots { font-size: 12px; font-weight: 800; }
+    .custom-marker-inner .label { font-size: 7px; opacity: 0.8; }
+    
+    .leaflet-popup-content-wrapper { border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%); }
+    .leaflet-popup-content { margin: 16px !important; color: #334155; }
+    .leaflet-popup-content .popup-title { font-weight: 700; font-size: 16px; margin-bottom: 8px; color: #1e293b; }
+    .leaflet-popup-content .popup-info { display: flex; justify-content: space-between; align-items: center; margin: 8px 0; padding: 8px; background: #f1f5f9; border-radius: 6px; }
+    .leaflet-popup-content .popup-button { background: linear-gradient(135deg, #3b82f6 0%, #1e40af 100%); color: white; border: none; padding: 10px 16px; border-radius: 8px; cursor: pointer; margin-top: 12px; width: 100%; font-weight: 600; transition: all 0.2s; box-shadow: 0 2px 4px rgba(59, 130, 246, 0.3); }
+    .leaflet-popup-content .popup-button:hover { transform: translateY(-1px); box-shadow: 0 4px 8px rgba(59, 130, 246, 0.4); }
+
+    .toast-enter { transform: translateX(100%); opacity: 0; }
+    .toast-enter-active { transform: translateX(0); opacity: 1; transition: all 300ms ease-out; }
+    .toast-exit { transform: translateX(0); opacity: 1; }
+    .toast-exit-active { transform: translateX(100%); opacity: 0; transition: all 300ms ease-in; }
+  </style>
+</head>
+<body class="min-h-screen">
+
+  <header class="glass sticky top-0 z-40 border-b border-white/20">
+    <div class="container mx-auto px-4 py-3">
+      <div class="flex justify-between items-center">
+        <div class="flex gap-3 items-center">
+          <div class="bg-gradient-to-r from-sp-blue to-sp-blue-light w-10 h-10 rounded-xl flex items-center justify-center font-bold text-white text-lg shadow-lg">SP</div>
+          <div>
+            <h1 class="font-bold text-slate-800 text-lg">SmartParking HN</h1>
+            <p class="text-xs text-slate-600 -mt-1">Estacionamiento Inteligente • SPS</p>
+          </div>
+        </div>
+        <div id="header-auth-section" class="flex items-center gap-3"></div>
+      </div>
+    </div>
+  </header>
+
+  <main id="app-container" class="container mx-auto p-4">
+    
+    <div id="page-landing" class="page">
+      <section class="relative overflow-hidden rounded-2xl mb-8 bg-gradient-to-r from-slate-800 to-slate-900">
+        <div class="relative z-10 p-8 md:p-12 text-white">
+          <div class="flex flex-col lg:flex-row items-center gap-8">
+            <div class="flex-1 space-y-6">
+              <h2 class="text-3xl md:text-5xl font-bold leading-tight">Encuentra tu <span class="text-sp-blue-light">parqueo perfecto</span> en segundos</h2>
+              <p class="text-lg md:text-xl text-slate-300 leading-relaxed">Acabemos con las vueltas interminables. Reserva, paga y accede con un código único. Tu tiempo vale más.</p>
+              <div class="flex flex-col sm:flex-row gap-4">
+                <button class="bg-sp-blue-light text-white font-bold px-8 py-3 rounded-xl hover-lift shadow-lg" onclick="navigateTo('login')">🚀 Comenzar Ahora</button>
+                <button class="glass text-white font-semibold px-8 py-3 rounded-xl hover:bg-white/20 transition-all duration-300 border border-white/20" onclick="navigateTo('dashboard', true)">👁️ Ver Demo</button>
+              </div>
+            </div>
+            <div class="flex-1 relative mt-8 lg:mt-0"><img src="https://images.unsplash.com/photo-1506905925346-21bda4d32df4?auto=format&fit=crop&w=800&q=80" alt="Estacionamiento moderno" class="w-full h-64 md:h-80 object-cover rounded-xl shadow-2xl"></div>
+          </div>
+        </div>
+      </section>
+      <section class="grid md:grid-cols-3 gap-6 mb-8">
+        <div class="bg-white p-6 rounded-xl shadow-card hover-lift">
+          <div class="text-4xl mb-3">⚡</div>
+          <h3 class="font-bold text-lg mb-2">Súper Rápido</h3><p class="text-slate-600">Reserva en menos de 2 minutos. Sin complicaciones, sin esperas.</p>
+        </div>
+        <div class="bg-white p-6 rounded-xl shadow-card hover-lift">
+          <div class="text-4xl mb-3">💳</div>
+          <h3 class="font-bold text-lg mb-2">Pago Seguro</h3><p class="text-slate-600">Paga desde tu celular con total seguridad y recibe tu código al instante.</p>
+        </div>
+        <div class="bg-white p-6 rounded-xl shadow-card hover-lift">
+          <div class="text-4xl mb-3">📍</div>
+          <h3 class="font-bold text-lg mb-2">Ubicación Real</h3><p class="text-slate-600">Encuentra los mejores parqueos con información en tiempo real.</p>
+        </div>
+      </section>
+      <footer class="text-center py-8 text-slate-500 text-sm"><p>Prototipo para concurso Lean Startup • SmartParking HN</p></footer>
+    </div>
+
+    <div id="page-login" class="page">
+      <div class="max-w-md mx-auto mt-16">
+        <div class="bg-white p-8 rounded-2xl shadow-card-hover animate-slide-up">
+          <div class="text-center mb-8">
+            <div class="bg-gradient-to-r from-sp-blue to-sp-blue-light w-16 h-16 rounded-2xl flex items-center justify-center font-bold text-white text-2xl mx-auto mb-4 shadow-lg">SP</div>
+            <h3 class="font-bold text-2xl mb-2">¡Bienvenido de Nuevo!</h3>
+            <p class="text-slate-600">Ingresa tus credenciales para continuar.</p>
+          </div>
+          <div class="space-y-4">
+            <div><label class="block text-sm font-semibold text-slate-700 mb-2">Correo Electrónico</label><input id='inp-email' class='w-full px-4 py-3 bg-white border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-sp-blue focus:border-transparent transition-all' placeholder='tu@correo.com' type="email"></div>
+            <div><label class="block text-sm font-semibold text-slate-700 mb-2">Contraseña</label><input id='inp-pass' type='password' class='w-full px-4 py-3 bg-white border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-sp-blue focus:border-transparent transition-all' placeholder='••••••••'></div>
+          </div>
+          <button class='w-full bg-gradient-to-r from-sp-blue to-sp-blue-light text-white font-bold py-3 rounded-xl hover:shadow-glow transition-all duration-300 mt-6 hover-lift' onclick='login()'>Acceder al Dashboard</button>
+          <div class="text-center mt-6"><button class="text-sm text-sp-blue hover:underline font-medium" onclick="navigateTo('landing')">← Volver al inicio</button></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="page-dashboard" class="page">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div class="bg-white p-4 rounded-xl shadow-card"><div class="flex items-center justify-between"><div><p class="text-sm text-slate-600">Disponibles</p><p class="text-2xl font-bold text-sp-green" id="available-count">-</p></div><div class="text-2xl">🟢</div></div></div>
+            <div class="bg-white p-4 rounded-xl shadow-card"><div class="flex items-center justify-between"><div><p class="text-sm text-slate-600">Ocupados</p><p class="text-2xl font-bold text-sp-red" id="occupied-count">-</p></div><div class="text-2xl">🔴</div></div></div>
+            <div class="bg-white p-4 rounded-xl shadow-card"><div class="flex items-center justify-between"><div><p class="text-sm text-slate-600">Precio Prom.</p><p class="text-2xl font-bold text-sp-blue" id="avg-price">-</p></div><div class="text-2xl">💰</div></div></div>
+            <div class="bg-white p-4 rounded-xl shadow-card"><div class="flex items-center justify-between"><div><p class="text-sm text-slate-600">Ubicaciones</p><p class="text-2xl font-bold text-slate-800" id="total-count">-</p></div><div class="text-2xl">📍</div></div></div>
+        </div>
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <aside class="lg:col-span-1 bg-white p-4 rounded-xl shadow-card">
+          <h3 class="font-bold text-lg mb-4">Buscar Estacionamiento</h3>
+          <div class="space-y-3">
+            <input id="txt-search" class="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm" placeholder="Buscar por nombre o zona...">
+            <select id="zone-filter" class="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm" onchange="filterList()"><option value="all">Todas las zonas</option></select>
+            <select id="price-filter" class="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm" onchange="filterList()">
+              <option value="all">Cualquier precio</option>
+              <option value="low">L &lt; 15/hr</option>
+              <option value="mid">L 15-25/hr</option>
+              <option value="high">L &gt; 25/hr</option>
+            </select>
+             <button class="w-full bg-slate-800 text-white font-semibold px-4 py-2 rounded-xl hover:bg-slate-700 transition-all hover-lift" onclick="filterList()">Aplicar Filtros</button>
+          </div>
+          <div id="places-list" class="max-h-[450px] overflow-auto space-y-3 mt-4 pr-1"></div>
+        </aside>
+        <section class="lg:col-span-2 bg-white p-4 rounded-xl shadow-card">
+            <div class="flex justify-between items-center mb-2">
+                <h3 class="font-bold text-lg">Mapa de Estacionamientos</h3>
+                <div class="flex gap-2 text-xs">
+                    <div class="flex items-center gap-1"><div class="w-2.5 h-2.5 bg-sp-green rounded-full"></div><span class="text-slate-600">Disponible</span></div>
+                    <div class="flex items-center gap-1"><div class="w-2.5 h-2.5 bg-sp-orange rounded-full"></div><span class="text-slate-600">Casi lleno</span></div>
+                    <div class="flex items-center gap-1"><div class="w-2.5 h-2.5 bg-sp-red rounded-full"></div><span class="text-slate-600">Lleno</span></div>
+                </div>
+            </div>
+            <div id="map" class="h-[400px] lg:h-[580px] w-full rounded-xl overflow-hidden shadow-inner"></div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <div id="modal-root"></div>
+  <div id="toast-root" class="fixed bottom-6 right-6 z-[100] space-y-2"></div>
+
+  <script>
+    /**********************
+     * MOCK DATA
+     **********************/
+    const PARKINGS = [
+      {id:1,name:'Parqueo Centro Prado',zone:'Prado Alto',lat:15.5009,lng:-88.0253,rate:25,capacity:24,occupancy:8,blocks:['A1','A2','A3','B1','B2','B3']},
+      {id:2,name:'Multiplaza Parking',zone:'Barrio Guamilito',lat:15.5015,lng:-88.0375,rate:30,capacity:40,occupancy:30,blocks:['P1','P2','P3','P4']},
+      {id:3,name:'Estac. Cerca del Centro',zone:'Centro',lat:15.4990,lng:-88.0305,rate:15,capacity:18,occupancy:5,blocks:['C1','C2','C3']},
+      {id:4,name:'Parking Zona Viva',zone:'Zona Viva',lat:15.5085,lng:-88.0285,rate:30,capacity:50,occupancy:48,blocks:['R1','R2','R3','R4','R5']},
+      {id:7,name:'Comisariato Los Andes',zone:'Colonia Los Andes',lat:15.5262,lng:-88.0326,rate:25,capacity:60,occupancy:25,blocks:['A1','A2','A3','B1','B2']},
+      {id:8,name:'City Mall Estacionamiento',zone:'Salida a La Lima',lat:15.4883,lng:-88.0169,rate:28,capacity:150,occupancy:145,blocks:['N1','N2','S1','S2','T1']},
+      {id:9,name:'Diunsa Plaza Pedregal',zone:'Noroeste',lat:15.5345,lng:-88.0443,rate:20,capacity:80,occupancy:40,blocks:['D1','D2','D3','E1']},
+      {id:10,name:'Diunsa Salida a la Lima',zone:'Salida a La Lima',lat:15.4947,lng:-88.0195,rate:18,capacity:100,occupancy:30,blocks:['L1','L2','L3','L4']},
+      {id:11,name:'Century Business Square',zone:'Zona Viva',lat:15.5186,lng:-88.0240,rate:30,capacity:120,occupancy:50,blocks:['CB1','CB2','CB3','CB4']}
+    ];
+
+    /**********************
+     * STATE & INIT
+     **********************/
+    let currentUser = JSON.parse(localStorage.getItem('sp_user') || 'null');
+    let mapInitialized = false;
+
+    const pages = {
+        landing: document.getElementById('page-landing'),
+        login: document.getElementById('page-login'),
+        dashboard: document.getElementById('page-dashboard')
+    };
+    
+    const zones = Array.from(new Set(PARKINGS.map(p => p.zone))).sort();
+    const zoneSelect = document.getElementById('zone-filter');
+    zoneSelect.innerHTML = '<option value="all">Todas las zonas</option>';
+    zones.forEach(z => { const o = document.createElement('option'); o.value = z; o.textContent = z; zoneSelect.appendChild(o) });
+
+    let map;
+    const markers = {};
+
+    /**********************
+     * NAVIGATION
+     **********************/
+    function navigateTo(pageName, isGuest = false) {
+        Object.values(pages).forEach(p => p.classList.remove('active'));
+        if (pages[pageName]) {
+            pages[pageName].classList.add('active');
+        }
+
+        if (pageName === 'dashboard') {
+            if (!mapInitialized) {
+                setTimeout(initializeMap, 100);
+            }
+            updateDashboardStats();
+        }
+        
+        if (isGuest) {
+            currentUser = { name: 'Invitado', email: 'guest@sp.hn' };
+        }
+        updateHeader();
+    }
+    
+    function updateHeader() {
+        const headerAuth = document.getElementById('header-auth-section');
+        if (currentUser && currentUser.name !== 'Invitado') {
+             headerAuth.innerHTML = `
+                <div class="hidden md:flex items-center gap-2 text-sm text-slate-700 bg-white/80 px-3 py-2 rounded-lg">👋 <span class="font-semibold">${currentUser.name}</span></div>
+                <button onclick="openHistory()" class="text-sm font-semibold text-slate-700 hover:text-sp-blue transition-colors px-3 py-2 rounded-lg hover:bg-white/50">Mis Reservas</button>
+                <button class="bg-white text-slate-700 text-sm font-semibold px-4 py-2 rounded-xl hover:bg-slate-100 transition-all hover-lift" onclick="logout()">Salir</button>`;
+        } else {
+            headerAuth.innerHTML = `
+                <div class="hidden md:flex items-center gap-2 text-sm text-slate-700 bg-white/80 px-3 py-2 rounded-lg">👤 Modo Invitado</div>
+                <button class="bg-white text-sp-blue text-sm font-semibold px-4 py-2 rounded-xl hover:shadow-md transition-all hover-lift" onclick="navigateTo('login')">Iniciar Sesión</button>`;
+        }
+    }
+
+    /**********************
+     * DASHBOARD STATS
+     **********************/
+    function updateDashboardStats() {
+        const totalCapacity = PARKINGS.reduce((sum, p) => sum + p.capacity, 0);
+        const totalOccupancy = PARKINGS.reduce((sum, p) => sum + p.occupancy, 0);
+        const available = totalCapacity - totalOccupancy;
+        const avgPrice = (PARKINGS.reduce((sum, p) => sum + p.rate, 0) / PARKINGS.length).toFixed(2);
+        
+        document.getElementById('available-count').textContent = available;
+        document.getElementById('occupied-count').textContent = totalOccupancy;
+        document.getElementById('avg-price').textContent = `L ${avgPrice}`;
+        document.getElementById('total-count').textContent = PARKINGS.length;
+    }
+
+    /**********************
+     * MAP & UI LOGIC
+     **********************/
+     function getMarkerIcon(parking) {
+        const available = parking.capacity - parking.occupancy;
+        const occupancyRate = parking.occupancy / parking.capacity;
+        let colorClass = 'bg-sp-green';
+        if (occupancyRate >= 0.95) {
+            colorClass = 'bg-sp-red';
+        } else if (occupancyRate > 0.75) {
+            colorClass = 'bg-sp-orange';
+        }
+        
+        return L.divIcon({
+            html: `<div class="custom-marker ${colorClass}"><div class="custom-marker-inner"><div class="spots">${available}</div><div class="label">LIBRE</div></div></div>`,
+            className: '',
+            iconSize: [36, 36],
+            iconAnchor: [18, 36]
+        });
+    }
+
+     function initializeMap() {
+        if (map) { map.invalidateSize(); } 
+        else {
+            map = L.map('map').setView([15.5085, -88.0285], 13);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+        }
+        
+        Object.values(markers).forEach(m => m.remove());
+        PARKINGS.forEach(p => {
+            const available = p.capacity - p.occupancy;
+            const m = L.marker([p.lat, p.lng], { icon: getMarkerIcon(p) })
+                .addTo(map)
+                .bindPopup(
+                `<div class="popup-title">${p.name}</div>
+                 <div class="popup-info"><span>Disponibles:</span> <span class="font-bold text-sp-green">${available}</span></div>
+                 <div class="popup-info"><span>Tarifa:</span> <span class="font-bold">L ${p.rate}/hr</span></div>
+                 <button class="popup-button" onclick="openReserve(${p.id})">Reservar ahora</button>`
+            );
+            markers[p.id] = m;
+        });
+        mapInitialized = true;
+     }
+
+    function renderPlaces(list = PARKINGS) {
+      const container = document.getElementById('places-list'); container.innerHTML = '';
+      if (list.length === 0) {
+          container.innerHTML = `<div class="text-center text-slate-500 p-8">No se encontraron estacionamientos.</div>`;
+          return;
+      }
+      list.forEach(p => {
+        const available = p.capacity - p.occupancy;
+        const occupancyRate = p.occupancy / p.capacity;
+        let colorClass = 'text-sp-green';
+        if (occupancyRate >= 0.95) colorClass = 'text-sp-red';
+        else if (occupancyRate > 0.75) colorClass = 'text-sp-orange';
+
+        const div = document.createElement('div');
+        div.className = 'p-3 border-b border-slate-100 flex justify-between items-center cursor-pointer hover:bg-slate-50 rounded-lg';
+        div.onclick = () => focusOnParking(p.id);
+        div.innerHTML = `
+          <div>
+            <strong class="text-slate-800">${p.name}</strong>
+            <div class='text-sm text-slate-500'>${p.zone} · <span class="font-semibold ${colorClass}">${available} libres</span></div>
+          </div>
+          <div class='text-right'>
+            <div class='bg-sp-blue-light/10 text-sp-blue text-xs font-bold px-2 py-1 rounded-full'>L ${p.rate}/hr</div>
+          </div>`;
+        container.appendChild(div);
+      });
+    }
+    
+    function filterList() {
+      const q = document.getElementById('txt-search').value.toLowerCase();
+      const zone = document.getElementById('zone-filter').value;
+      const price = document.getElementById('price-filter').value;
+      const filtered = PARKINGS.filter(p => {
+        if (zone !== 'all' && p.zone !== zone) return false;
+        if (q && !(p.name.toLowerCase().includes(q) || p.zone.toLowerCase().includes(q))) return false;
+        if (price === 'low' && p.rate >= 15) return false;
+        if (price === 'mid' && (p.rate < 15 || p.rate > 25)) return false;
+        if (price === 'high' && p.rate <= 25) return false;
+        return true;
+      });
+      renderPlaces(filtered);
+    }
+    
+    function focusOnParking(id) {
+        const p = PARKINGS.find(pp => pp.id === id);
+        if (p && map) { map.setView([p.lat, p.lng], 16); markers[id].openPopup(); }
+    }
+
+    /**********************
+     * AUTH FLOW
+     **********************/
+    function login() {
+      const email = document.getElementById('inp-email').value;
+      if (!email) {
+          showToast("Por favor, ingresa un correo.", 3000, true);
+          return;
+      }
+      currentUser = { email, name: email.split('@')[0] };
+      localStorage.setItem('sp_user', JSON.stringify(currentUser));
+      navigateTo('dashboard');
+      showToast(`¡Bienvenido de nuevo, ${currentUser.name}!`);
+    }
+
+    function logout() {
+        localStorage.removeItem('sp_user');
+        currentUser = null;
+        navigateTo('landing');
+        showToast("Has cerrado sesión.");
+    }
+    
+    /**********************
+     * RESERVATION FLOW (Modals)
+     **********************/
+    function openModal(content) {
+        const modalRoot = document.getElementById('modal-root');
+        modalRoot.innerHTML = `<div class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4 animate-slide-up">${content}</div>`;
+    }
+
+    function closeModal() { document.getElementById('modal-root').innerHTML = ''; }
+
+    function openReserve(id) {
+      const parking = PARKINGS.find(p => p.id === id);
+      const content = `
+        <div class='bg-white p-6 rounded-2xl shadow-2xl max-w-md w-full mx-4'>
+          <h3 class="font-bold text-xl">Reservar en ${parking.name}</h3>
+          <p class="text-sm text-slate-500 mb-4">${parking.zone} · ${parking.capacity - parking.occupancy} espacios libres</p>
+          <div class="space-y-3">
+            <div><label class="text-sm font-semibold text-slate-700">Fecha y hora de inicio</label><input id='res-start' type='datetime-local' class='w-full mt-1 px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm' value='${new Date().toISOString().slice(0, 16)}'></div>
+            <div class="grid grid-cols-2 gap-3">
+              <div><label class="text-sm font-semibold text-slate-700">Duración</label><select id='res-hours' class='w-full mt-1 px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm'><option value='0.5'>30 min</option><option value='1' selected>1 hora</option><option value='2'>2 horas</option><option value='3'>3 horas</option></select></div>
+              <div><label class="text-sm font-semibold text-slate-700">Bloque</label><select id='res-block' class='w-full mt-1 px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm'>${parking.blocks.map(b => `<option value='${b}'>${b}</option>`).join('')}</select></div>
+            </div>
+          </div>
+          <div class='mt-4 pt-4 border-t flex justify-between items-center'>
+             <div class='text-sm text-slate-500'>Tarifa: L ${parking.rate}/hr</div>
+             <div id='calc-price' class="font-semibold text-lg"></div>
+          </div>
+          <div class='mt-4 flex gap-2 justify-end'>
+            <button class='bg-white text-slate-700 text-sm font-semibold px-4 py-2 rounded-lg border hover:bg-slate-50' onclick="closeModal()">Cancelar</button>
+            <button class='bg-gradient-to-r from-sp-blue to-sp-blue-light text-white font-semibold px-4 py-2 rounded-lg hover-lift' onclick='confirmPayment(${parking.id})'>Confirmar y Pagar</button>
+          </div>
+        </div>`;
+      openModal(content);
+      
+      const hoursSelect = document.getElementById('res-hours');
+      const calcPrice = () => {
+        const total = (parking.rate * parseFloat(hoursSelect.value)).toFixed(2);
+        document.getElementById('calc-price').innerHTML = `Total: <span class="text-sp-blue">L ${total}</span>`;
+      };
+      hoursSelect.addEventListener('change', calcPrice);
+      calcPrice();
+    }
+    
+    function confirmPayment(id) {
+        const parking = PARKINGS.find(p => p.id === id);
+        const hours = parseFloat(document.getElementById('res-hours').value);
+        const total = (parking.rate * hours).toFixed(2);
+        const content = `
+        <div class='bg-white p-6 rounded-2xl shadow-2xl max-w-md w-full mx-4'>
+            <h3 class="font-bold text-xl">Confirmar Pago</h3>
+            <p class="text-sm text-slate-500 mb-4">Estás a punto de pagar por tu reserva.</p>
+            <div class="bg-slate-50 p-4 rounded-lg space-y-2">
+                <div class="flex justify-between text-sm"><span class="text-slate-600">Estacionamiento:</span><span class="font-medium">${parking.name}</span></div>
+                <div class="flex justify-between text-sm"><span class="text-slate-600">Duración:</span><span class="font-medium">${hours} ${hours == 1 ? 'hora':'horas'}</span></div>
+                <div class="flex justify-between text-lg font-bold border-t pt-2 mt-2"><span class="text-slate-800">Total a Pagar:</span><span class="text-sp-blue">L ${total}</span></div>
+            </div>
+            <p class="text-xs text-slate-400 mt-4 text-center">Esto es una simulación. Al confirmar, la reserva se creará.</p>
+             <div class='mt-4 flex gap-2 justify-end'>
+                <button class='bg-white text-slate-700 text-sm font-semibold px-4 py-2 rounded-lg border hover:bg-slate-50' onclick='openReserve(${id})'>Volver</button>
+                <button class='bg-sp-green text-white font-semibold px-4 py-2 rounded-lg hover-lift' onclick='createReservation(${id})'>Pagar L ${total} ahora</button>
+             </div>
+        </div>`;
+        openModal(content);
+    }
+
+    function createReservation(id) {
+      const parking = PARKINGS.find(p=>p.id===id);
+      const start = document.getElementById('res-start').value;
+      const hours = parseFloat(document.getElementById('res-hours').value);
+      const block = document.getElementById('res-block').value;
+      const total = (parking.rate * hours).toFixed(2);
+      const code = 'SP' + Math.random().toString(36).substr(2,6).toUpperCase();
+      const reservation = { id:'res_'+Date.now(), parkingId:parking.id, parkingName:parking.name, zone:parking.zone, start, hours, block, total, code, created: new Date().toISOString() };
+      
+      const hist = JSON.parse(localStorage.getItem('sp_reservations') || '[]');
+      hist.unshift(reservation);
+      localStorage.setItem('sp_reservations', JSON.stringify(hist));
+      
+      closeModal();
+      showConfirmation(reservation);
+    }
+    
+    function showConfirmation(res) {
+      const content = `
+        <div class='bg-white p-6 rounded-2xl shadow-2xl max-w-lg w-full mx-4 text-center'>
+            <div class="mx-auto bg-sp-green/10 h-16 w-16 rounded-full flex items-center justify-center"><svg class="h-8 w-8 text-sp-green" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg></div>
+            <h3 class="font-bold text-2xl mt-4">¡Reserva Confirmada!</h3>
+            <p class="text-slate-500">Tu código de acceso ha sido generado.</p>
+            <div class="flex flex-col md:flex-row gap-4 mt-6 bg-slate-50 p-4 rounded-lg items-center text-left">
+                <div id="qrcode" class="p-2 bg-white rounded-md shadow-sm"></div>
+                <div>
+                    <div class="text-sm text-slate-600">Estacionamiento: <strong class="text-slate-800">${res.parkingName}</strong></div>
+                    <div class="text-sm text-slate-600">Bloque: <strong class="text-slate-800">${res.block}</strong></div>
+                    <div class="mt-2 text-sm">Código de Acceso:</div>
+                    <div class="font-bold text-2xl tracking-widest text-sp-blue">${res.code}</div>
+                </div>
+            </div>
+            <div class='mt-6 flex gap-2 justify-center'>
+                <button class='bg-white text-slate-700 font-semibold px-4 py-2 rounded-lg border hover:bg-slate-50' onclick="closeModal()">Cerrar</button>
+                <button class='bg-sp-blue text-white font-semibold px-4 py-2 rounded-lg hover-lift' onclick='openHistory()'>Ver mis reservas</button>
+            </div>
+        </div>`;
+      openModal(content);
+      setTimeout(() => new QRCode(document.getElementById('qrcode'), { text: res.code, width: 128, height: 128 }), 50);
+      setTimeout(() => showToast('Recordatorio de reserva activado (simulado).'), 2000);
+    }
+
+    function openHistory() {
+      const hist = JSON.parse(localStorage.getItem('sp_reservations') || '[]');
+      const content = `
+        <div class='bg-white p-6 rounded-2xl shadow-2xl max-w-lg w-full mx-4'>
+            <h3 class="font-bold text-xl mb-4">Historial de Reservas</h3>
+            <div class='max-h-80 overflow-auto space-y-2 pr-2'>
+              ${hist.length ? hist.map(r => `
+                <div class="p-3 border rounded-lg bg-slate-50/50">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <strong class="text-slate-800">${r.parkingName}</strong>
+                            <div class="text-sm text-slate-500">${new Date(r.start).toLocaleString('es-HN')} · ${r.hours}h · Bloque ${r.block}</div>
+                        </div>
+                        <div class="text-right">
+                            <div class="font-semibold text-sp-blue">L ${r.total}</div>
+                            <div class="text-xs font-mono bg-slate-200 px-1.5 py-0.5 rounded-md text-slate-600">${r.code}</div>
+                        </div>
+                    </div>
+                </div>`).join('') : `<div class='text-center text-slate-500 p-8'>No tienes reservas anteriores.</div>`}
+            </div>
+            <div class='mt-4 flex justify-end'><button class='bg-white text-slate-700 font-semibold px-4 py-2 rounded-lg border hover:bg-slate-50' onclick="closeModal()">Cerrar</button></div>
+        </div>`;
+      openModal(content);
+    }
+
+    /**********************
+     * UTILS
+     **********************/
+    function showToast(message, duration = 3000, isError = false) {
+      const toastRoot = document.getElementById('toast-root');
+      const toast = document.createElement('div');
+      const bgColor = isError ? 'bg-sp-red' : 'bg-slate-800';
+      toast.className = `${bgColor} text-white text-sm font-semibold px-4 py-3 rounded-lg shadow-lg toast-enter`;
+      toast.textContent = message;
+      toastRoot.appendChild(toast);
+      
+      requestAnimationFrame(() => toast.classList.add('toast-enter-active'));
+      setTimeout(() => {
+        toast.classList.remove('toast-enter-active');
+        toast.classList.add('toast-exit', 'toast-exit-active');
+        toast.addEventListener('transitionend', () => toast.remove());
+      }, duration);
+    }
+    
+    document.addEventListener('DOMContentLoaded', () => {
+        if (currentUser) { navigateTo('dashboard'); } 
+        else { navigateTo('landing'); }
+        renderPlaces();
+    });
+  </script>
+</body>
+</html>
+
